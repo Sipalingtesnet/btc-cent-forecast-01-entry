@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
-btc-cent-forecast-01: Micro-Damped Persistence Bitcoin 4h Forecaster.
+btc-cent-forecast-01: Theil-Sen Robust Trend Bitcoin 4h Forecaster.
 
 Forecasts Bitcoin's price 240 minutes ahead from the checkpoint close.
 Approach:
-1. Extract 4,320 minute close prices (72 hours). Validate finite positive numbers.
-2. Apply an extremely conservative micro-drift adjustment (multiplier 0.01) from 180m trend, capped at ±0.05% to hug the persistence baseline closely while capturing structural micro-momentum.
-3. Fully deterministic, standard library only, outputs exact required JSON shape.
+1. Extract close prices from the 72-hour window. Validate finite positive numbers.
+2. Compute Theil-Sen robust median slope from hourly sampled log prices.
+3. Forecast = checkpoint_close * exp(shrink * slope * 240), capped at ±1.5%.
+4. Fully deterministic, standard library only, outputs exact required JSON shape.
 """
 
 import os
@@ -24,22 +25,36 @@ def forecast_price(prices: list[float]) -> float:
     if len(valid) < 60:
         return p0
     
-    # Conservative micro-trend over last 180 minutes, heavily shrunk
-    p_past = valid[-180] if len(valid) >= 180 else valid[0]
-    if p_past > 0:
-        log_return = math.log(p0 / p_past)
-        damped_return = log_return * 0.01
-    else:
-        damped_return = 0.0
+    # Theil-Sen robust median slope sampled hourly
+    step = 60
+    sampled = []
+    for idx in range(0, len(valid), step):
+        sampled.append((idx, math.log(valid[idx])))
         
-    # Strict narrow cap of ±0.05% to remain robust against high volatility
-    max_move = 0.0005
-    if damped_return > max_move:
-        damped_return = max_move
-    elif damped_return < -max_move:
-        damped_return = -max_move
+    if len(sampled) < 3:
+        return p0
         
-    predicted = p0 * math.exp(damped_return)
+    slopes = []
+    for i in range(len(sampled)):
+        for j in range(i + 1, len(sampled)):
+            dt = sampled[j][0] - sampled[i][0]
+            if dt > 0:
+                slopes.append((sampled[j][1] - sampled[i][1]) / dt)
+                
+    if not slopes:
+        return p0
+        
+    slopes.sort()
+    mid_slope = slopes[len(slopes) // 2]
+    
+    # Robust parameters: shrink=0.75, max_cap=0.015 (1.5%)
+    shrink = 0.75
+    max_cap = 0.015
+    
+    move = shrink * mid_slope * 240.0
+    move = max(-max_cap, min(max_cap, move))
+    
+    predicted = p0 * math.exp(move)
     
     if not math.isfinite(predicted) or predicted <= 0:
         predicted = p0

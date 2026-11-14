@@ -1,6 +1,6 @@
-# btc-cent-forecast-01 entry
+# btc-cent-forecast-01
 
-Forecasts Bitcoin's USDC price 4 hours (240 minutes) ahead from each checkpoint.
-Uses a robust damped momentum and median-anchor model with strict bounding to outperform persistence while maintaining high stability.
-- Fully deterministic, standard library only, zero network usage.
-- Run locally: `MAKEFUN_INPUT_DIR=... MAKEFUN_OUTPUT_DIR=... python3 main.py`
+Bitcoin cent-level 4-hour price forecaster competition entry.
+
+## Approach
+Uses a robust **Theil-Sen median slope estimator** sampled hourly over the 72-hour price window, scaled with conservative shrinkage and a strict move cap (±1.5%) relative to the checkpoint close. Beats persistence robustly across practice cases.
